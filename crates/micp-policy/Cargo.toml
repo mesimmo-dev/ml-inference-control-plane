@@ -1,0 +1,15 @@
+[package]
+name = "micp-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ordered policy evaluation that tightens routing constraints"
+rust-version.workspace = true
+
+[dependencies]
+micp-core.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

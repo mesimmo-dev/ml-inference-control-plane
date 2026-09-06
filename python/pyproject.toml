@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "micp-eval"
+version = "0.1.0"
+description = "Evaluation, workload generation, experiment sweeps, and statistical validation for the ML inference control plane"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "mesimmo-dev" }]
+dependencies = [
+    "numpy>=1.24,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

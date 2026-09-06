@@ -1,0 +1,15 @@
+[package]
+name = "micp-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic workload generation for routing experiments"
+rust-version.workspace = true
+
+[dependencies]
+micp-core.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

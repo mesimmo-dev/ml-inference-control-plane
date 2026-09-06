@@ -1,0 +1,15 @@
+[package]
+name = "micp-router"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Adaptive single-request model routing"
+rust-version.workspace = true
+
+[dependencies]
+micp-core.workspace = true
+micp-policy.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+python/dist/
+python/build/
+.coverage
+htmlcov/
+
+# Node / TypeScript
+node_modules/
+web/dist/
+web/coverage/
+*.tsbuildinfo
+npm-debug.log*
+.vite/
+
+# WASM artifacts (build outputs; sources stay in crates/)
+*.wasm
+!web/public/.gitkeep
+
+# Docker / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+
+# Test / debug
+*.log
+tmp/

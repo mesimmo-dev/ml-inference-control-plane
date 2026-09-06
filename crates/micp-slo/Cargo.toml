@@ -1,0 +1,15 @@
+[package]
+name = "micp-slo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SLO windows, error budget, and burn-rate logic"
+rust-version.workspace = true
+
+[dependencies]
+micp-core.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

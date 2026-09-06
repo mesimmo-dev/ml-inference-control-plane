@@ -1,0 +1,66 @@
+# Default control-plane configuration used by `micp-api` and as a
+# reference for evaluation workloads. All numeric fields are SI-ish
+# (milliseconds, tokens, requests/second) and are intended to be
+# replaced by measured fleet telemetry.
+
+[server]
+bind = "0.0.0.0:8080"
+
+[weights]
+# Relative importance of competing objectives. The engine normalizes
+# these to a unit simplex before scoring.
+latency = 0.30
+quality = 0.25
+cost = 0.20
+throughput = 0.10
+reliability = 0.15
+
+[slo]
+name = "interactive-p99"
+success_target = 0.999
+latency_ms = 250.0
+min_error_budget = 0.20
+
+[[models]]
+id = "llama-8b-fast"
+latency_p99_ms = 80.0
+quality = 0.72
+cost_per_1k_tokens = 0.04
+capacity_rps = 120.0
+error_rate = 0.004
+
+[[models]]
+id = "llama-70b-quality"
+latency_p99_ms = 220.0
+quality = 0.91
+cost_per_1k_tokens = 0.35
+capacity_rps = 18.0
+error_rate = 0.008
+
+[[models]]
+id = "mixtral-8x7b"
+latency_p99_ms = 140.0
+quality = 0.84
+cost_per_1k_tokens = 0.12
+capacity_rps = 40.0
+error_rate = 0.006
+
+[[policies]]
+name = "interactive-tight-latency"
+priority = 10
+enabled = true
+match_class = "interactive"
+max_latency_ms = 250.0
+min_quality = 0.70
+max_cost_per_1k = 0.50
+max_error_rate = 0.02
+
+[[policies]]
+name = "batch-prefer-cost"
+priority = 20
+enabled = true
+match_class = "batch"
+max_latency_ms = 2000.0
+min_quality = 0.65
+max_cost_per_1k = 0.20
+max_error_rate = 0.05

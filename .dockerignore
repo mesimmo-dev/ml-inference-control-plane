@@ -1,0 +1,9 @@
+.git
+.github
+target
+python/.venv
+python/**/__pycache__
+web/node_modules
+web/dist
+**/*.md
+docs

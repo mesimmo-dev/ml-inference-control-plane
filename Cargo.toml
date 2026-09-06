@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/micp-core",
+    "crates/micp-policy",
+    "crates/micp-slo",
+    "crates/micp-router",
+    "crates/micp-optimizer",
+    "crates/micp-sim",
+    "crates/micp-api",
+    "crates/micp-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/mesimmo-dev/ml-inference-control-plane"
+rust-version = "1.80"
+description = "SLO-aware control plane for adaptive ML inference routing and optimization"
+
+[workspace.dependencies]
+micp-core = { path = "crates/micp-core" }
+micp-policy = { path = "crates/micp-policy" }
+micp-slo = { path = "crates/micp-slo" }
+micp-router = { path = "crates/micp-router" }
+micp-optimizer = { path = "crates/micp-optimizer" }
+micp-sim = { path = "crates/micp-sim" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+axum = { version = "0.8", features = ["json"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
