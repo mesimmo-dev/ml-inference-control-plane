@@ -9,6 +9,14 @@ a Python evaluation layer off that path, and a TypeScript/React workbench
 that talks to the live engine. It does **not** train models, own GPUs, or
 report empirical production telemetry.
 
+## Live Workbench
+
+**Interactive deployment:** https://swift-civic-plum-silver.grok.me
+
+**Core stack:** Rust · Tokio/Axum · Python · TypeScript/React · WebAssembly
+
+> Engineering/research prototype. Reported system quantities are modeled, simulated, or local synthetic benchmarks unless explicitly identified as empirical.
+
 ## Why this problem
 
 A serving fleet is a constrained multi-objective system. Tightening p99
