@@ -66,8 +66,19 @@ npm ci        # or npm install on a fresh checkout without lock
 npm test
 npm run typecheck
 npm run build
-npm run dev   # Vite, http://127.0.0.1:5173
 ```
+
+Development (API on 8081, Vite on 5173, proxy `/health` and `/v1`):
+
+```bash
+MICP_BIND=127.0.0.1:8081 cargo run -p micp-api --release
+cd web && npm run dev
+```
+
+Combined process after `npm run build`: if `web/dist` exists, `micp-api`
+serves it as a fallback (`MICP_WEB_DIST` overrides the path).
+
+See [workbench.md](workbench.md).
 
 ## WebAssembly
 
@@ -85,6 +96,12 @@ The module exports `micp_score_candidate`, `micp_slo_burn_rate`,
 Both the original inventory score and the closed-form p99 path are
 `f64` C ABI. `wasm-bindgen` / `wasm-pack` are **not** part of the
 reproducible path.
+
+Copy the artifact into the workbench public dir when it changes:
+
+```bash
+cp target/wasm32-unknown-unknown/release/micp_wasm.wasm web/public/micp_wasm.wasm
+```
 
 If the target cannot be installed (air-gapped CI, missing rustup),
 skip the WASM job; native `cargo test -p micp-wasm` still exercises

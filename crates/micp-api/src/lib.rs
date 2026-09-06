@@ -6,6 +6,7 @@ mod telemetry;
 pub use config::{FileConfig, DEFAULT_CONFIG};
 pub use telemetry::init as init_telemetry;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::{
@@ -25,7 +26,11 @@ use micp_router::{plan, plan_lenient, route_with_policy, RoutePlan};
 use micp_sim::{simulate, SimReport, SimSpec};
 use micp_slo::{SloSpec, SloState};
 use serde::{Deserialize, Serialize};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    cors::CorsLayer,
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -65,6 +70,23 @@ impl AppState {
 }
 
 pub fn app(state: AppState) -> Router {
+    api_router(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+}
+
+/// Same API routes, plus the built workbench (`web/dist`) as a fallback.
+/// Unknown paths serve `index.html` so the SPA can deep-link.
+pub fn app_with_static(state: AppState, dist: PathBuf) -> Router {
+    let index = dist.join("index.html");
+    let files = ServeDir::new(&dist).not_found_service(ServeFile::new(index));
+    api_router(state)
+        .fallback_service(files)
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+}
+
+fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/v1/config", get(show_config))
@@ -76,8 +98,6 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/recommend", post(do_recommend))
         .route("/v1/simulate", post(do_simulate))
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
 }
 
 #[derive(Serialize)]
@@ -346,8 +366,17 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
     let bind = state.bind.clone();
     let listener = tokio::net::TcpListener::bind(&bind).await?;
-    tracing::info!(%bind, "micp-api listening");
-    axum::serve(listener, app(state))
+    let dist = std::env::var("MICP_WEB_DIST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("web/dist"));
+    let router = if dist.is_dir() {
+        tracing::info!(path = %dist.display(), %bind, "micp-api listening (API + workbench)");
+        app_with_static(state, dist)
+    } else {
+        tracing::info!(%bind, "micp-api listening (API only; set MICP_WEB_DIST or build web/dist)");
+        app(state)
+    };
+    axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
@@ -511,5 +540,22 @@ mod tests {
         let payload = serde_json::json!({ "scenario": scenario });
         let (status, _) = json_post("/v1/evaluate", &payload.to_string()).await;
         assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn static_fallback_does_not_shadow_health() {
+        let dir = std::env::temp_dir().join(format!("micp-web-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<html>workbench</html>").unwrap();
+        let response = app_with_static(state(), dir)
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

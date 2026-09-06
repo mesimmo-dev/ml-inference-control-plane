@@ -29,6 +29,7 @@ npm-debug.log*
 # WASM artifacts (build outputs; sources stay in crates/)
 *.wasm
 !web/public/.gitkeep
+!web/public/*.wasm
 
 # Docker / OS
 .DS_Store

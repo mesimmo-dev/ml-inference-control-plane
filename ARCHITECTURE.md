@@ -8,7 +8,8 @@ traffic each candidate should receive) given live constraints.
 ```
                      ┌─────────────────────────────────────┐
                      │           Workbench (TS/React)      │
-                     │     inspect decisions / SLOs / WASM │
+                     │  live /v1/evaluate + /v1/simulate   │
+                     │  WASM inventory score (not a plan)  │
                      └──────────────────┬──────────────────┘
                                         │ HTTP
                      ┌──────────────────▼──────────────────┐
@@ -34,10 +35,10 @@ traffic each candidate should receive) given live constraints.
 
 Python (`micp_eval`) lives **off** this path. It drives `micp-api` over
 HTTP: scenario evaluation, bounded parameter sweeps, sensitivity,
-invariant checks, and artifact export. A small reference module
-re-implements documented cost/quality/occupancy formulas for
-cross-checks and is labeled as such. Python never sits on the request
-path. See [docs/evaluation.md](docs/evaluation.md).
+invariant checks, and artifact export. The workbench loads curated
+artifacts from `web/public/artifacts/` and labels them modeled. Python
+never sits on the request path. See [docs/evaluation.md](docs/evaluation.md)
+and [docs/workbench.md](docs/workbench.md).
 
 ## Two type layers
 

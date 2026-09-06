@@ -1,0 +1,81 @@
+{
+  "experiment_id": "391806821eeb20be",
+  "kind": "evaluate",
+  "timestamp": "2026-09-06T03:21:54+00:00",
+  "scenario_id": "interactive_assistant",
+  "seed": null,
+  "input": {
+    "scenario_id": "interactive_assistant",
+    "assumptions": [
+      "Open-loop arrivals at 15 rps, 12 parallel clients.",
+      "Prompt 256 / context 0 / output 128 tokens (no RAG).",
+      "Latency SLO is modeled p99 \u2264 200ms, not an empirical trace.",
+      "Quality is a proxy (base model score), not a judged groundedness metric.",
+      "Costs are list-price-like USD/1k tokens, not a negotiated contract."
+    ],
+    "weights": {
+      "latency": 0.45,
+      "quality": 0.2,
+      "cost": 0.15,
+      "throughput": 0.05,
+      "reliability": 0.15
+    }
+  },
+  "inventory": [
+    {
+      "id": "fast-8b"
+    },
+    {
+      "id": "balanced-mixtral"
+    },
+    {
+      "id": "quality-70b"
+    }
+  ],
+  "result": {
+    "status": "ok",
+    "error": null,
+    "origin": "modeled",
+    "feasible": true,
+    "recommended_key": "fast-8b:k0:none:c0:none",
+    "model_id": "fast-8b",
+    "p50_ms": 32.65813785206523,
+    "p95_ms": 48.758758164589466,
+    "p99_ms": 57.566459564345294,
+    "throughput_rps": 15.0,
+    "utilization": 0.04189999999999999,
+    "saturated": false,
+    "quality": 0.7,
+    "cost_per_request": 0.002048,
+    "cost_per_1k": 2.048,
+    "slo_violation_prob": 5.1736392947532295e-14,
+    "failure_prob": 0.0030000000000258683,
+    "fallback_activation_prob": 0.0,
+    "n_evaluated": 3,
+    "n_feasible": 1,
+    "n_pareto": 1,
+    "pareto_keys": [
+      "fast-8b:k0:none:c0:none"
+    ],
+    "feasible_keys": [
+      "fast-8b:k0:none:c0:none"
+    ],
+    "degradations": [
+      "fallback_model"
+    ]
+  },
+  "validation": {
+    "failures": [],
+    "passed": true
+  },
+  "environment": {
+    "python": "3.10.21",
+    "platform": "Linux-6.12.8+-x86_64-with-glibc2.36",
+    "machine": "x86_64",
+    "numpy": "2.2.6",
+    "pandas": "2.3.3",
+    "micp_eval": "0.1.0",
+    "git_sha": "4aad5d5d82779c047f4f2cffd7ac0918876bd468"
+  },
+  "note": "curated example; origin is modeled; not an empirical measurement"
+}
