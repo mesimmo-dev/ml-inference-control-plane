@@ -21,9 +21,7 @@ class ArrivalSpec:
     arrival_rate_rps: float
     duration_s: float
     seed: int
-    class_mix: dict[str, float] = field(
-        default_factory=lambda: {CLASS_INTERACTIVE: 0.8, CLASS_BATCH: 0.2}
-    )
+    class_mix: dict[str, float] = field(default_factory=lambda: {CLASS_INTERACTIVE: 0.8, CLASS_BATCH: 0.2})
 
 
 @dataclass(frozen=True)

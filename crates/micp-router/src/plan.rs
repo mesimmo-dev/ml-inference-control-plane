@@ -32,10 +32,31 @@ pub struct RoutePlan {
 }
 
 /// Plan a workload against a fleet. All estimates are modeled.
+/// Returns [`MicpError::NoFeasibleModel`] when nothing survives the SLO.
 pub fn plan(
     workload: &WorkloadProfile,
     fleet: &[InferenceCandidate],
     weights: &ObjectiveWeights,
+) -> Result<RoutePlan> {
+    plan_with_options(workload, fleet, weights, true)
+}
+
+/// Same as [`plan`], but an empty feasible set is a successful empty
+/// report (`recommended = None`) instead of an error. Used by evaluation
+/// sweeps that need the evaluated/violation payload on infeasible points.
+pub fn plan_lenient(
+    workload: &WorkloadProfile,
+    fleet: &[InferenceCandidate],
+    weights: &ObjectiveWeights,
+) -> Result<RoutePlan> {
+    plan_with_options(workload, fleet, weights, false)
+}
+
+fn plan_with_options(
+    workload: &WorkloadProfile,
+    fleet: &[InferenceCandidate],
+    weights: &ObjectiveWeights,
+    require_feasible: bool,
 ) -> Result<RoutePlan> {
     if fleet.is_empty() {
         return Err(MicpError::InvalidConfig("fleet is empty".into()));
@@ -69,7 +90,7 @@ pub fn plan(
 
     let recommended = recommend_from_estimates(&estimates, weights).map(|i| feasible[i].clone());
 
-    if recommended.is_none() {
+    if require_feasible && recommended.is_none() {
         return Err(MicpError::NoFeasibleModel);
     }
 
@@ -152,6 +173,21 @@ mod tests {
     }
 
     #[test]
+    fn lenient_plan_returns_evaluated_when_infeasible() {
+        let mut s = bursty_enterprise();
+        s.workload.constraints.latency_slo = Milliseconds::new(0.01);
+        s.workload.constraints.quality_floor = Quality::new(0.99);
+        s.workload.constraints.cost_ceiling_per_request = Usd::new(1e-12);
+        s.workload.constraints.min_capacity = Rps::new(1_000_000.0);
+        s.workload.exhaustion = ExhaustionPolicy::Reject;
+        let p = plan_lenient(&s.workload, &s.fleet, &s.weights).unwrap();
+        assert!(p.recommended.is_none());
+        assert!(p.feasible_keys.is_empty());
+        assert!(!p.evaluated.is_empty());
+        assert!(p.evaluated.iter().all(|e| !e.violations.is_empty()));
+    }
+
+    #[test]
     fn rag_plan_records_degraded_variants() {
         let s = quality_rag();
         let p = plan(&s.workload, &s.fleet, &s.weights).unwrap();
@@ -171,7 +207,6 @@ mod tests {
             reliability: 0.025,
         };
         let l = plan(&s.workload, &s.fleet, &latency_w).unwrap();
-        // Both feasible; they may match, but scores must be finite.
         assert!(q.recommended.unwrap().estimate.p99_ms.get().is_finite());
         assert!(l.recommended.unwrap().estimate.p99_ms.get().is_finite());
     }

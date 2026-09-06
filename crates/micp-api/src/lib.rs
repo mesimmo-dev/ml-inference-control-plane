@@ -21,7 +21,7 @@ use micp_core::{
 };
 use micp_optimizer::{allocate, Allocation};
 use micp_policy::PolicySet;
-use micp_router::{plan, route_with_policy, RoutePlan};
+use micp_router::{plan, plan_lenient, route_with_policy, RoutePlan};
 use micp_sim::{simulate, SimReport, SimSpec};
 use micp_slo::{SloSpec, SloState};
 use serde::{Deserialize, Serialize};
@@ -194,6 +194,27 @@ async fn show_scenario(Path(id): Path<String>) -> std::result::Result<Json<Scena
 #[derive(Deserialize)]
 struct EvaluateIn {
     scenario_id: Option<String>,
+    /// Full scenario body. When present, takes precedence over `scenario_id`.
+    scenario: Option<Scenario>,
+    /// When true, an empty feasible set is a 200 with `recommended: null`
+    /// plus the evaluated/violation payload. Default false preserves the
+    /// original 409 `NoFeasibleModel` behaviour.
+    #[serde(default)]
+    allow_infeasible: bool,
+}
+
+fn resolve_posted_scenario(
+    state: &AppState,
+    scenario_id: Option<&str>,
+    scenario: Option<Scenario>,
+) -> std::result::Result<Scenario, ApiError> {
+    if let Some(s) = scenario {
+        if s.fleet.is_empty() {
+            return Err(MicpError::InvalidConfig("fleet is empty".into()).into());
+        }
+        return Ok(s);
+    }
+    resolve_scenario(state, scenario_id)
 }
 
 fn resolve_scenario(state: &AppState, id: Option<&str>) -> std::result::Result<Scenario, ApiError> {
@@ -215,8 +236,13 @@ async fn do_evaluate(
     State(state): State<AppState>,
     Json(body): Json<EvaluateIn>,
 ) -> std::result::Result<Json<RoutePlan>, ApiError> {
-    let s = resolve_scenario(&state, body.scenario_id.as_deref())?;
-    Ok(Json(plan(&s.workload, &s.fleet, &s.weights)?))
+    let s = resolve_posted_scenario(&state, body.scenario_id.as_deref(), body.scenario)?;
+    let p = if body.allow_infeasible {
+        plan_lenient(&s.workload, &s.fleet, &s.weights)?
+    } else {
+        plan(&s.workload, &s.fleet, &s.weights)?
+    };
+    Ok(Json(p))
 }
 
 #[derive(Serialize)]
@@ -229,16 +255,22 @@ async fn do_recommend(
     State(state): State<AppState>,
     Json(body): Json<EvaluateIn>,
 ) -> std::result::Result<Json<RecommendBody>, ApiError> {
-    let s = resolve_scenario(&state, body.scenario_id.as_deref())?;
+    let s = resolve_posted_scenario(&state, body.scenario_id.as_deref(), body.scenario)?;
+    let p = if body.allow_infeasible {
+        plan_lenient(&s.workload, &s.fleet, &s.weights)?
+    } else {
+        plan(&s.workload, &s.fleet, &s.weights)?
+    };
     Ok(Json(RecommendBody {
         origin: "modeled",
-        plan: plan(&s.workload, &s.fleet, &s.weights)?,
+        plan: p,
     }))
 }
 
 #[derive(Deserialize)]
 struct SimulateIn {
-    scenario_id: String,
+    scenario_id: Option<String>,
+    scenario: Option<Scenario>,
     model_id: Option<String>,
     seed: Option<u64>,
     duration_s: Option<f64>,
@@ -246,10 +278,10 @@ struct SimulateIn {
 }
 
 async fn do_simulate(
+    State(state): State<AppState>,
     Json(body): Json<SimulateIn>,
 ) -> std::result::Result<Json<SimReport>, ApiError> {
-    let s = scenario_by_id(&body.scenario_id)
-        .ok_or_else(|| ApiError::not_found(format!("unknown scenario {}", body.scenario_id)))?;
+    let s = resolve_posted_scenario(&state, body.scenario_id.as_deref(), body.scenario)?;
     let cand = match &body.model_id {
         Some(id) => s
             .fleet
@@ -436,5 +468,48 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["origin"], "simulated");
         assert!(body["n_arrivals"].as_u64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn evaluate_accepts_full_scenario_body() {
+        let (_, scenario) = json_get("/v1/scenarios/interactive_assistant").await;
+        let payload = serde_json::json!({
+            "scenario": scenario,
+            "allow_infeasible": true
+        });
+        let (status, body) = json_post("/v1/evaluate", &payload.to_string()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["recommended"]["estimate"]["origin"], "modeled");
+        assert!(body["evaluated"].as_array().unwrap().len() >= 3);
+    }
+
+    #[tokio::test]
+    async fn evaluate_allow_infeasible_returns_evaluated_payload() {
+        let (_, mut scenario) = json_get("/v1/scenarios/interactive_assistant").await;
+        scenario["workload"]["constraints"]["latency_slo"] = serde_json::json!(0.01);
+        scenario["workload"]["constraints"]["quality_floor"] = serde_json::json!(0.99);
+        scenario["workload"]["constraints"]["cost_ceiling_per_request"] = serde_json::json!(1e-12);
+        scenario["workload"]["constraints"]["min_capacity"] = serde_json::json!(1_000_000.0);
+        let payload = serde_json::json!({
+            "scenario": scenario,
+            "allow_infeasible": true
+        });
+        let (status, body) = json_post("/v1/evaluate", &payload.to_string()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["recommended"].is_null());
+        assert_eq!(body["feasible_keys"].as_array().unwrap().len(), 0);
+        assert!(!body["evaluated"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn evaluate_without_allow_infeasible_is_conflict() {
+        let (_, mut scenario) = json_get("/v1/scenarios/interactive_assistant").await;
+        scenario["workload"]["constraints"]["latency_slo"] = serde_json::json!(0.01);
+        scenario["workload"]["constraints"]["quality_floor"] = serde_json::json!(0.99);
+        scenario["workload"]["constraints"]["cost_ceiling_per_request"] = serde_json::json!(1e-12);
+        scenario["workload"]["constraints"]["min_capacity"] = serde_json::json!(1_000_000.0);
+        let payload = serde_json::json!({ "scenario": scenario });
+        let (status, _) = json_post("/v1/evaluate", &payload.to_string()).await;
+        assert_eq!(status, StatusCode::CONFLICT);
     }
 }

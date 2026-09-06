@@ -11,12 +11,20 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "mesimmo-dev" }]
 dependencies = [
     "numpy>=1.24,<3",
+    "pandas>=2.0,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.8",
+    "pandas-stubs>=2.0",
+    "hypothesis>=6.0",
 ]
+
+[project.scripts]
+micp-eval = "micp_eval.cli:main"
 
 [tool.setuptools.package-dir]
 "" = "src"
@@ -24,6 +32,34 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+micp_eval = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "integration: requires a live micp-api process",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["micp_eval"]
+known-local-folder = ["fakes"]
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+packages = ["micp_eval"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true

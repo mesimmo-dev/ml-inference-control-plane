@@ -5,7 +5,7 @@
 
 mod plan;
 
-pub use plan::{plan, EvaluatedRoute, RoutePlan};
+pub use plan::{plan, plan_lenient, EvaluatedRoute, RoutePlan};
 
 use micp_core::{
     partition_fleet, MicpError, ModelProfile, ObjectiveWeights, RequestConstraints, Result,

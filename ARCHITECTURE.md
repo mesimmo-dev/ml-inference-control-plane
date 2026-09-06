@@ -32,9 +32,12 @@ traffic each candidate should receive) given live constraints.
                     units, inventory, domain, estimate, scenarios
 ```
 
-Python (`micp_eval`) lives **off** this path. It generates workloads,
-sweeps weight/constraint grids, and validates outcome distributions. It
-never sits on the request path.
+Python (`micp_eval`) lives **off** this path. It drives `micp-api` over
+HTTP: scenario evaluation, bounded parameter sweeps, sensitivity,
+invariant checks, and artifact export. A small reference module
+re-implements documented cost/quality/occupancy formulas for
+cross-checks and is labeled as such. Python never sits on the request
+path. See [docs/evaluation.md](docs/evaluation.md).
 
 ## Two type layers
 

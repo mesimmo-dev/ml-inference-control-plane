@@ -39,6 +39,6 @@ npm-debug.log*
 .env.*
 !.env.example
 
-# Test / debug
-*.log
-tmp/
+# Evaluation outputs (regenerate with micp-eval)
+python/artifacts/
+

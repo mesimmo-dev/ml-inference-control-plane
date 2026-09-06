@@ -7,7 +7,8 @@ optimization under competing **latency**, **quality**, **cost**,
 This repository is a polyglot systems foundation: a Rust workspace for
 the latency-sensitive control-plane engine, a Python package for
 evaluation sweeps, and a TypeScript/React workbench shell. The Rust
-engine is implemented; the workbench is still a compile/run scaffold.
+engine and Python evaluation layer are implemented; the workbench is
+still a compile/run scaffold.
 
 ## Why the languages split this way
 
@@ -63,6 +64,9 @@ cargo build -p micp-api --release
 python3 -m venv python/.venv
 python/.venv/bin/pip install -e "python[dev]"
 python/.venv/bin/pytest python/tests -q
+python/.venv/bin/ruff check python/src python/tests
+python/.venv/bin/mypy --config-file python/pyproject.toml -p micp_eval
+
 
 # Workbench
 cd web && npm install && npm test && npm run build
@@ -75,6 +79,7 @@ cargo run -p micp-api
 # GET  /health
 # GET  /v1/scenarios
 # POST /v1/evaluate    {"scenario_id":"interactive_assistant"}
+# POST /v1/evaluate    {"scenario": {...}, "allow_infeasible": true}
 # POST /v1/recommend   {"scenario_id":"quality_rag"}
 # POST /v1/simulate    {"scenario_id":"interactive_assistant","model_id":"fast-8b"}
 # POST /v1/route
@@ -109,13 +114,13 @@ the crate still builds and its native tests run as part of `cargo test`.
 
 ## Status
 
-Rust systems core (Phase 2): typed domain, closed-form route
-estimates, SLO feasibility, degradation ladder, Pareto
-recommendation, seeded G/G/n simulation, five scenario presets,
-Axum endpoints, WASM C ABI. The TypeScript workbench is still a
-shell; Python evaluation is still the Phase 1 scaffold.
+Rust systems core (Phase 2) plus a reproducible Python evaluation
+layer (Phase 3): scenario evaluation, bounded sweeps, sensitivity,
+invariants, seeded-sim summaries, and local engineering benches, all
+driven through `micp-api`. The TypeScript workbench is still a shell.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/models.md](docs/models.md).
+See [ARCHITECTURE.md](ARCHITECTURE.md), [docs/models.md](docs/models.md),
+and [docs/evaluation.md](docs/evaluation.md).
 
 ## License
 

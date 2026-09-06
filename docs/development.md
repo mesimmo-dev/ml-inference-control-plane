@@ -38,10 +38,25 @@ python3 -m venv python/.venv
 python/.venv/bin/pip install -U pip
 python/.venv/bin/pip install -e "python[dev]"
 python/.venv/bin/pytest python/tests -q
+python/.venv/bin/ruff check python/src python/tests
+python/.venv/bin/ruff format --check python/src python/tests
+python/.venv/bin/mypy --config-file python/pyproject.toml -p micp_eval
 ```
 
-The package is importable as `micp_eval`. It depends on `numpy` only
-at runtime so experiment scripts stay light.
+The package is importable as `micp_eval`. Runtime deps are NumPy and
+pandas (tabular artifacts). Ruff, mypy, pytest, and Hypothesis are
+dev extras. Integration tests spawn `target/release/micp-api` when
+that binary exists and skip otherwise.
+
+CLI (requires a running API):
+
+```bash
+python/.venv/bin/micp-eval evaluate --all --out python/artifacts
+python/.venv/bin/micp-eval --help
+```
+
+See [docs/evaluation.md](evaluation.md).
+
 
 ## Workbench
 
@@ -91,7 +106,7 @@ No compose file: a single process does not need one.
 `.github/workflows/ci.yml` runs three jobs:
 
 1. **rust** — fmt, clippy, `cargo test --workspace`, release build of `micp-api`
-2. **python** — install `python/[dev]`, pytest
+2. **python** — install `python[dev]`, ruff, mypy, pytest
 3. **web** — `npm ci`, typecheck, unit tests, production build
 4. **wasm** — install `wasm32-unknown-unknown`, build `micp-wasm`
 
