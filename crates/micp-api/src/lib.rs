@@ -9,16 +9,20 @@ pub use telemetry::init as init_telemetry;
 use std::sync::{Arc, Mutex};
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use micp_core::{MicpError, ModelProfile, ObjectiveWeights, RequestConstraints, RoutingDecision};
+use micp_core::{
+    all_scenarios, scenario_by_id, InferenceCandidate, MicpError, ModelProfile, ObjectiveWeights,
+    RequestConstraints, RouteConfig, RoutingDecision, Scenario,
+};
 use micp_optimizer::{allocate, Allocation};
 use micp_policy::PolicySet;
-use micp_router::route_with_policy;
+use micp_router::{plan, route_with_policy, RoutePlan};
+use micp_sim::{simulate, SimReport, SimSpec};
 use micp_slo::{SloSpec, SloState};
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -51,6 +55,13 @@ impl AppState {
             bind: cfg.server.bind,
         }
     }
+
+    fn inventory_candidates(&self) -> Vec<InferenceCandidate> {
+        self.fleet
+            .iter()
+            .map(InferenceCandidate::from_inventory)
+            .collect()
+    }
 }
 
 pub fn app(state: AppState) -> Router {
@@ -59,6 +70,11 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/config", get(show_config))
         .route("/v1/route", post(do_route))
         .route("/v1/allocate", post(do_allocate))
+        .route("/v1/scenarios", get(list_scenarios))
+        .route("/v1/scenarios/{id}", get(show_scenario))
+        .route("/v1/evaluate", post(do_evaluate))
+        .route("/v1/recommend", post(do_recommend))
+        .route("/v1/simulate", post(do_simulate))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -147,22 +163,144 @@ async fn do_allocate(
     Ok(Json(allocation))
 }
 
-struct ApiError(MicpError);
+#[derive(Serialize)]
+struct ScenarioCard {
+    id: String,
+    name: String,
+    summary: String,
+    assumptions: Vec<String>,
+}
+
+async fn list_scenarios() -> Json<Vec<ScenarioCard>> {
+    Json(
+        all_scenarios()
+            .into_iter()
+            .map(|s| ScenarioCard {
+                id: s.id,
+                name: s.name,
+                summary: s.summary,
+                assumptions: s.assumptions,
+            })
+            .collect(),
+    )
+}
+
+async fn show_scenario(Path(id): Path<String>) -> std::result::Result<Json<Scenario>, ApiError> {
+    scenario_by_id(&id)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found(format!("unknown scenario {id}")))
+}
+
+#[derive(Deserialize)]
+struct EvaluateIn {
+    scenario_id: Option<String>,
+}
+
+fn resolve_scenario(state: &AppState, id: Option<&str>) -> std::result::Result<Scenario, ApiError> {
+    match id {
+        Some(id) => {
+            scenario_by_id(id).ok_or_else(|| ApiError::not_found(format!("unknown scenario {id}")))
+        }
+        None => {
+            let base = scenario_by_id("interactive_assistant").expect("builtin");
+            Ok(Scenario {
+                fleet: state.inventory_candidates(),
+                ..base
+            })
+        }
+    }
+}
+
+async fn do_evaluate(
+    State(state): State<AppState>,
+    Json(body): Json<EvaluateIn>,
+) -> std::result::Result<Json<RoutePlan>, ApiError> {
+    let s = resolve_scenario(&state, body.scenario_id.as_deref())?;
+    Ok(Json(plan(&s.workload, &s.fleet, &s.weights)?))
+}
+
+#[derive(Serialize)]
+struct RecommendBody {
+    origin: &'static str,
+    plan: RoutePlan,
+}
+
+async fn do_recommend(
+    State(state): State<AppState>,
+    Json(body): Json<EvaluateIn>,
+) -> std::result::Result<Json<RecommendBody>, ApiError> {
+    let s = resolve_scenario(&state, body.scenario_id.as_deref())?;
+    Ok(Json(RecommendBody {
+        origin: "modeled",
+        plan: plan(&s.workload, &s.fleet, &s.weights)?,
+    }))
+}
+
+#[derive(Deserialize)]
+struct SimulateIn {
+    scenario_id: String,
+    model_id: Option<String>,
+    seed: Option<u64>,
+    duration_s: Option<f64>,
+    long_tail: Option<bool>,
+}
+
+async fn do_simulate(
+    Json(body): Json<SimulateIn>,
+) -> std::result::Result<Json<SimReport>, ApiError> {
+    let s = scenario_by_id(&body.scenario_id)
+        .ok_or_else(|| ApiError::not_found(format!("unknown scenario {}", body.scenario_id)))?;
+    let cand = match &body.model_id {
+        Some(id) => s
+            .fleet
+            .iter()
+            .find(|c| c.id.as_str() == id)
+            .cloned()
+            .ok_or_else(|| ApiError::not_found(format!("unknown model {id}")))?,
+        None => s.fleet[0].clone(),
+    };
+    let route = RouteConfig::baseline(cand, &s.workload);
+    let spec = SimSpec {
+        duration_s: body.duration_s.unwrap_or(2.0).min(10.0),
+        seed: body.seed.unwrap_or(1),
+        long_tail: body.long_tail.unwrap_or(false),
+        max_events: 8_000,
+        ..SimSpec::default()
+    };
+    Ok(Json(simulate(&route, &s.workload, &spec)?))
+}
+
+struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    fn not_found(message: String) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            message,
+        }
+    }
+}
 
 impl From<MicpError> for ApiError {
     fn from(value: MicpError) -> Self {
-        Self(value)
+        let status = match value {
+            MicpError::NoFeasibleModel => StatusCode::CONFLICT,
+            MicpError::InvalidConfig(_) => StatusCode::BAD_REQUEST,
+        };
+        Self {
+            status,
+            message: value.to_string(),
+        }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let status = match self.0 {
-            MicpError::NoFeasibleModel => StatusCode::CONFLICT,
-            MicpError::InvalidConfig(_) => StatusCode::BAD_REQUEST,
-        };
-        let body = serde_json::json!({ "error": self.0.to_string() });
-        (status, Json(body)).into_response()
+        let body = serde_json::json!({ "error": self.message });
+        (self.status, Json(body)).into_response()
     }
 }
 
@@ -212,6 +350,26 @@ mod tests {
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
+    async fn json_post(uri: &str, body: &str) -> (StatusCode, serde_json::Value) {
+        let response = app(state())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let v = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, v)
+    }
+
     #[tokio::test]
     async fn health_ok() {
         let (status, body) = json_get("/health").await;
@@ -229,23 +387,54 @@ mod tests {
 
     #[tokio::test]
     async fn route_returns_a_model() {
-        let response = app(state())
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/route")
-                    .header("content-type", "application/json")
-                    .body(Body::from(r#"{"demand_rps": 12}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .unwrap();
-        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let (status, body) = json_post("/v1/route", r#"{"demand_rps": 12}"#).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(body["feasible"], true);
         assert!(body["model_id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn scenarios_list_five() {
+        let (status, body) = json_get("/v1/scenarios").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.as_array().unwrap().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn scenario_detail_includes_assumptions() {
+        let (status, body) = json_get("/v1/scenarios/quality_rag").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["id"], "quality_rag");
+        assert!(body["assumptions"].as_array().unwrap().len() >= 3);
+        assert_eq!(body["fleet"].as_array().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn unknown_scenario_is_404() {
+        let (status, _) = json_get("/v1/scenarios/nope").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn evaluate_interactive_returns_recommendation() {
+        let (status, body) =
+            json_post("/v1/evaluate", r#"{"scenario_id":"interactive_assistant"}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["recommended"]["estimate"]["route_key"]
+            .as_str()
+            .is_some());
+        assert_eq!(body["recommended"]["estimate"]["origin"], "modeled");
+    }
+
+    #[tokio::test]
+    async fn simulate_marks_origin_simulated() {
+        let (status, body) = json_post(
+            "/v1/simulate",
+            r#"{"scenario_id":"interactive_assistant","model_id":"fast-8b","duration_s":2.0,"seed":3}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["origin"], "simulated");
+        assert!(body["n_arrivals"].as_u64().unwrap() > 0);
     }
 }

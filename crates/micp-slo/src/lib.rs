@@ -86,6 +86,15 @@ impl SloState {
     }
 }
 
+/// Compare a *modeled* SLO-miss probability to the allowed error rate.
+/// This does not update the empirical window.
+pub fn modeled_meets_target(spec: &SloSpec, slo_violation_prob: f64) -> bool {
+    if !slo_violation_prob.is_finite() {
+        return false;
+    }
+    slo_violation_prob <= spec.allowed_error_rate() + 1e-12
+}
+
 /// Scalar helper used by the WASM ABI (no struct marshaling).
 pub fn burn_rate(success_target: f64, requests: f64, successes: f64) -> f64 {
     if !(success_target.is_finite() && requests.is_finite() && successes.is_finite()) {
@@ -169,5 +178,14 @@ mod tests {
         s.record(false, 80.0);
         let scalar = burn_rate(0.999, s.requests as f64, s.successes as f64);
         assert!((scalar - s.burn_rate()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn modeled_miss_prob_against_target() {
+        let s = spec();
+        assert!(modeled_meets_target(&s, 0.0));
+        assert!(modeled_meets_target(&s, 0.001));
+        assert!(!modeled_meets_target(&s, 0.01));
+        assert!(!modeled_meets_target(&s, f64::NAN));
     }
 }

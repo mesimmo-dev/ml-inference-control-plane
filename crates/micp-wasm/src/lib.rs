@@ -7,7 +7,7 @@
 
 #![allow(unsafe_code)]
 
-use micp_core::{ModelProfile, ObjectiveWeights};
+use micp_core::{modeled_p99_ms, modeled_slo_violation_prob, ModelProfile, ObjectiveWeights};
 use micp_slo::burn_rate;
 
 /// Score one candidate. Returns `NaN` on non-finite input.
@@ -98,6 +98,38 @@ pub extern "C" fn micp_slo_burn_rate(success_target: f64, requests: f64, success
     burn_rate(success_target, requests, successes)
 }
 
+/// Modeled p99 (ms) from the closed-form queueing model.
+#[allow(clippy::too_many_arguments)]
+#[no_mangle]
+pub extern "C" fn micp_modeled_p99_ms(
+    intercept_ms: f64,
+    ms_per_in: f64,
+    ms_per_out: f64,
+    in_tokens: f64,
+    out_tokens: f64,
+    extra_ms: f64,
+    sigma_ms: f64,
+    lambda_rps: f64,
+    n_servers: f64,
+) -> f64 {
+    modeled_p99_ms(
+        intercept_ms,
+        ms_per_in,
+        ms_per_out,
+        in_tokens,
+        out_tokens,
+        extra_ms,
+        sigma_ms,
+        lambda_rps,
+        n_servers,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn micp_slo_violation_prob(mean_ms: f64, sigma_ms: f64, slo_ms: f64) -> f64 {
+    modeled_slo_violation_prob(mean_ms, sigma_ms, slo_ms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +162,12 @@ mod tests {
     fn burn_rate_export_is_finite_for_healthy_window() {
         let v = micp_slo_burn_rate(0.999, 1000.0, 1000.0);
         assert_eq!(v, 0.0);
+    }
+
+    #[test]
+    fn modeled_p99_export_is_positive_finite() {
+        let v = micp_modeled_p99_ms(30.0, 0.02, 0.08, 200.0, 100.0, 0.0, 8.0, 10.0, 8.0);
+        assert!(v.is_finite() && v > 0.0);
+        assert!(micp_slo_violation_prob(80.0, 10.0, 250.0).is_finite());
     }
 }

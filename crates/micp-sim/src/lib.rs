@@ -6,6 +6,10 @@
 //! `(spec, seed)` pair is reproducible across compilers as long as
 //! IEEE-754 `ln` is stable (it is, for the magnitude of values here).
 
+mod queue;
+
+pub use queue::{simulate, SimReport, SimSpec};
+
 use micp_core::{MicpError, Result, TrafficClass};
 use serde::{Deserialize, Serialize};
 
@@ -29,14 +33,14 @@ pub struct SimulatedRequest {
     pub class: TrafficClass,
 }
 
-struct XorShift64(u64);
+pub(crate) struct XorShift64(u64);
 
 impl XorShift64 {
-    fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self(seed | 1)
     }
 
-    fn next_u64(&mut self) -> u64 {
+    pub(crate) fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x << 13;
         x ^= x >> 7;
@@ -45,8 +49,7 @@ impl XorShift64 {
         x
     }
 
-    fn next_f64(&mut self) -> f64 {
-        // (0, 1]
+    pub(crate) fn next_f64(&mut self) -> f64 {
         let u = self.next_u64() >> 11;
         (u as f64) / ((1u64 << 53) as f64)
     }
@@ -73,12 +76,11 @@ pub fn generate(spec: &WorkloadSpec) -> Result<Vec<SimulatedRequest>> {
     let mut rng = XorShift64::new(spec.seed);
     let mut t = 0.0;
     let mut out = Vec::new();
-    // Cap to keep accidental huge specs from blowing memory in tests.
     let expected = spec.arrival_rate_rps * spec.duration_s;
     out.reserve(expected.ceil() as usize + 8);
 
     while t < spec.duration_s {
-        let u = rng.next_f64().max(f64::EPSILON);
+        let u = rng.next_f64().clamp(1e-6, 1.0 - 1e-9);
         t += -u.ln() / spec.arrival_rate_rps;
         if t >= spec.duration_s {
             break;
@@ -149,7 +151,6 @@ mod tests {
             assert!(r.t_s < 2.0);
             last = r.t_s;
         }
-        // Poisson(100) is extremely unlikely to be < 50 or > 200.
         assert!(reqs.len() > 50 && reqs.len() < 200);
     }
 

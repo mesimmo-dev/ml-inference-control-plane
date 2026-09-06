@@ -22,6 +22,7 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build -p micp-api --release
+cargo bench -p micp-core --bench engine -- --quick
 ```
 
 The API reads `configs/default.toml` by default. Override with:
@@ -64,9 +65,11 @@ cargo build -p micp-wasm --target wasm32-unknown-unknown --release
 # artifact: target/wasm32-unknown-unknown/release/micp_wasm.wasm
 ```
 
-The module exports `micp_score_candidate` and `micp_slo_burn_rate`.
-Both take and return `f64` scalars. `wasm-bindgen` / `wasm-pack` are
-**not** part of the reproducible path.
+The module exports `micp_score_candidate`, `micp_slo_burn_rate`,
+`micp_modeled_p99_ms`, and `micp_slo_violation_prob`.
+Both the original inventory score and the closed-form p99 path are
+`f64` C ABI. `wasm-bindgen` / `wasm-pack` are **not** part of the
+reproducible path.
 
 If the target cannot be installed (air-gapped CI, missing rustup),
 skip the WASM job; native `cargo test -p micp-wasm` still exercises

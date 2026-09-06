@@ -4,11 +4,10 @@ SLO-aware control plane for adaptive model routing and inference
 optimization under competing **latency**, **quality**, **cost**,
 **throughput**, **traffic**, and **reliability** constraints.
 
-This repository is the systems foundation: a Rust workspace for the
-latency-sensitive core, a Python package for evaluation and experiment
-sweeps, and a TypeScript/React workbench. It is not yet a complete
-product — the crates compile, the baseline algorithms are unit-tested,
-and the service/API scaffolding boots.
+This repository is a polyglot systems foundation: a Rust workspace for
+the latency-sensitive control-plane engine, a Python package for
+evaluation sweeps, and a TypeScript/React workbench shell. The Rust
+engine is implemented; the workbench is still a compile/run scaffold.
 
 ## Why the languages split this way
 
@@ -73,7 +72,11 @@ Run the control-plane API (listens on `0.0.0.0:8080` by default):
 
 ```bash
 cargo run -p micp-api
-# GET /health
+# GET  /health
+# GET  /v1/scenarios
+# POST /v1/evaluate    {"scenario_id":"interactive_assistant"}
+# POST /v1/recommend   {"scenario_id":"quality_rag"}
+# POST /v1/simulate    {"scenario_id":"interactive_assistant","model_id":"fast-8b"}
 # POST /v1/route
 # POST /v1/allocate
 ```
@@ -99,14 +102,20 @@ rustup target add wasm32-unknown-unknown
 cargo build -p micp-wasm --target wasm32-unknown-unknown --release
 ```
 
-The workbench will load this module in a later iteration. Until then the
-crate still builds and its native tests run as part of `cargo test`.
+Exports: `micp_score_candidate`, `micp_slo_burn_rate`,
+`micp_modeled_p99_ms`, `micp_slo_violation_prob` (all `f64` C ABI).
+The workbench will load this module in a later iteration. Until then
+the crate still builds and its native tests run as part of `cargo test`.
 
 ## Status
 
-Architecture and compile/run scaffolding only. Routing, policy, SLO,
-optimizer, and simulation implement baseline algorithms with unit tests;
-they are not production-hardened, and the workbench is a shell.
+Rust systems core (Phase 2): typed domain, closed-form route
+estimates, SLO feasibility, degradation ladder, Pareto
+recommendation, seeded G/G/n simulation, five scenario presets,
+Axum endpoints, WASM C ABI. The TypeScript workbench is still a
+shell; Python evaluation is still the Phase 1 scaffold.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/models.md](docs/models.md).
 
 ## License
 

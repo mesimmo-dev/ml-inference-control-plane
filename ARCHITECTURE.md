@@ -13,98 +13,107 @@ traffic each candidate should receive) given live constraints.
                                         │ HTTP
                      ┌──────────────────▼──────────────────┐
                      │          micp-api  (Axum)           │
-                     │   /health  /v1/route  /v1/allocate  │
-                     │   tracing init (OTel exporters TBD) │
+                     │  /health /v1/route /v1/allocate     │
+                     │  /v1/scenarios /v1/evaluate         │
+                     │  /v1/recommend /v1/simulate         │
                      └──────────────────┬──────────────────┘
                                         │
           ┌──────────────┬──────────────┼──────────────┬──────────────┐
           ▼              ▼              ▼              ▼              ▼
      micp-policy    micp-slo      micp-router   micp-optimizer   micp-sim
+     (monotonic     (error        (plan +       (Pareto +        (seeded
+      tighten +      budget)       inventory     water-fill)      G/G/n)
+      degrade)                     route)
           │              │              │              │              │
           └──────────────┴──────────────┴──────────────┴──────────────┘
                                         │
                                         ▼
                                    micp-core
-                          (types, constraints, scoring)
+                    units, inventory, domain, estimate, scenarios
 ```
 
 Python (`micp_eval`) lives **off** this path. It generates workloads,
 sweeps weight/constraint grids, and validates outcome distributions. It
 never sits on the request path.
 
-## Decision pipeline
+## Two type layers
 
-A routing decision is a pure function of (fleet, request, policies,
-weights, demand):
+1. **Inventory** (`ModelProfile`) — compact config/API snapshot
+   (p99, quality, unit cost, capacity, error rate). Kept so the
+   existing TOML config, `/v1/route`, `/v1/allocate`, WASM score ABI,
+   and TypeScript scaffolding stay compatible.
+2. **Engine** (`InferenceCandidate` + `WorkloadProfile`) — typed
+   serving model with units, retrieval, batching, token
+   distributions, SLO, exhaustion policy. Used by `/v1/evaluate`,
+   `/v1/recommend`, `/v1/simulate`, and the scenario presets.
 
-1. **Policy evaluation** (`micp-policy`) — matching policies tighten
-   the request's latency/quality/cost/reliability bounds and may
-   allow/deny specific model IDs. Policies are ordered by priority;
-   later policies can only *narrow* the feasible set.
-2. **Feasibility filter** (`micp-core`) — drop candidates that violate
-   the effective constraints.
-3. **Admission** (`micp-slo`) — if the active SLO's remaining error
-   budget is below a configured floor, only candidates that improve
-   (or do not worsen) the budget are admitted.
-4. **Score** (`micp-core`) — remaining candidates are scored with
-   normalized objective weights:
-   - latency: `1 / (1 + p99_ms / 100)`
-   - quality: reported quality in `[0, 1]`
-   - cost: `1 / (1 + cost_per_1k)`
-   - throughput: `capacity / (capacity + demand)`
-   - reliability: `1 - error_rate`
-5. **Select or allocate**
-   - `micp-router` picks the single highest-scoring feasible candidate.
-   - `micp-optimizer` converts scores into capacity-capped traffic
-     shares (softmax over scores, then clip-and-renormalize by
-     remaining RPS).
+`InferenceCandidate::from_inventory` is a documented adapter, not a
+fit to production telemetry.
 
-No step mutates shared state on the scoring path. SLO windows are the
-only stateful component; they are updated from observed outcomes, not
-from the decision itself.
+## Decision pipeline (engine)
 
-## Constraints
+A plan is a pure function of (fleet, workload, weights):
 
-The engine treats the five (plus traffic class) as hard filters first,
-soft objectives second:
+1. **Expand** (`micp-policy`) — each candidate plus a small
+   degradation ladder: disable rerank, halve `top_k`, halve context,
+   alter batching, switch to `fallback_to`. Constraints are never
+   relaxed; extra routes are added.
+2. **Estimate** (`micp-core`) — closed-form p50/p95/p99, utilization,
+   quality proxy, USD/request, SLO-miss and failure probabilities.
+   Origin = `modeled`.
+3. **Feasibility** — hard filters (latency SLO, quality floor, cost
+   ceiling, reliability target, min capacity, reject-on-saturation).
+   Violations are structured (`ConstraintKind` + observed/limit).
+4. **Pareto** (`micp-optimizer`) — non-dominated set on latency,
+   quality, cost, reliability.
+5. **Recommend** — highest five-weight score on the front; tie-break
+   is the lexicographically smaller route key.
 
-| Constraint | Hard filter | Soft objective |
-| --- | --- | --- |
-| Latency | `p99 <= max_latency_ms` | minimize |
-| Quality | `quality >= min_quality` | maximize |
-| Cost | `cost_per_1k <= max_cost` | minimize |
-| Reliability | `error_rate <= max_error_rate` | maximize |
-| Throughput / capacity | allocation caps at `capacity_rps` | prefer headroom |
-| Traffic class | policy match | — |
+Inventory `/v1/route` still uses the original score-and-pick path
+for the compact snapshot types.
 
-If the feasible set is empty the API returns `409` / `NoFeasibleModel`
-rather than silently relaxing constraints. Relaxation is a policy
-choice, not a router fallback.
+If the feasible set is empty the API returns `409` /
+`NoFeasibleModel`.
 
-## Workload simulation
+## Built-in scenarios
 
-`micp-sim` emits a deterministic exponential inter-arrival process
-(xorshift64, seed in the spec) mixed across traffic classes. Python
-mirrors this for larger sweeps so experiment scripts do not have to
-link against Rust. The two generators must agree on the arrival
-contract (rate, duration, class mix, seed); they are not required to
-produce bit-identical timestamps.
+`micp-core::scenarios` ships five inspectable presets (assumptions
+included in the struct, served at `/v1/scenarios`):
+
+| id | Intent |
+| --- | --- |
+| `interactive_assistant` | Closed-book chat, p99 ≤ 200ms |
+| `cost_constrained_volume` | 80 rps, tight USD/req |
+| `quality_rag` | Hybrid retrieval + rerank, quality floor 0.85 |
+| `bursty_enterprise` | 8× peaks; estimates size to peak |
+| `degraded_failover` | 70b down, mixtral at 40% replicas |
 
 ## Observability
 
 `micp-api` initializes a `tracing` subscriber. The `telemetry` module
-is the future OpenTelemetry attach point (resource attributes, W3C
-trace context, metrics for decision latency, feasible-set size, SLO
-burn). Exporters are intentionally not included in this revision:
-they add a large dependency surface before there is a stable request
-path to instrument.
+is the future OpenTelemetry attach point. Exporters are not included
+in this revision.
 
 ## WASM boundary
 
-Only *pure* functions cross into the browser: scoring a candidate and
-computing SLO burn. Policy evaluation and allocation stay server-side.
-The WASM crate uses a C ABI so `wasm32-unknown-unknown` + `rustc` is
-sufficient; no bindgen toolchain is required to reproduce the module.
+The `micp-wasm` crate keeps a C ABI (`extern "C"`, `f64` in/out):
+
+- `micp_score_candidate` — inventory score (unchanged)
+- `micp_slo_burn_rate` — empirical-window burn (unchanged)
+- `micp_modeled_p99_ms` — closed-form p99
+- `micp_slo_violation_prob` — lognormal SLO miss
+
+`wasm32-unknown-unknown` + `rustc` is sufficient; no bindgen.
+
+## Models, limitations
+
+See [docs/models.md](docs/models.md). Headline limits:
+
+- Queueing is M/M/n, not a GPU runtime
+- Quality is a proxy, not a judge
+- Cost is list-price-like, not a bill
+- Burst estimates size to peak
+- Simulation is seeded G/G/n, tagged `simulated`
 
 ## What this repository is not
 
@@ -112,5 +121,3 @@ sufficient; no bindgen toolchain is required to reproduce the module.
 - A service mesh or generic API gateway
 - A training / experiment-tracking platform
 - A Kubernetes operator
-
-Those systems consume or feed this control plane; they are not in-tree.

@@ -4,7 +4,14 @@
 //! tighten numeric bounds or shrink the allow-list. This keeps the
 //! composition of independently authored rules monotonic.
 
-use micp_core::{ModelId, ModelProfile, RequestConstraints, TrafficClass};
+mod degrade;
+
+pub use degrade::{expand_routes, ExpandedRoute};
+
+use micp_core::{
+    constraint_violations, ConstraintViolation, ModelId, ModelProfile, RequestConstraints,
+    RouteEstimate, TrafficClass, WorkloadProfile,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -129,6 +136,26 @@ fn intersect_allow(current: Option<Vec<ModelId>>, incoming: &[ModelId]) -> Vec<M
             .filter(|id| incoming.iter().any(|i| i == id))
             .collect(),
     }
+}
+
+/// SLO + allow/deny check for a modeled route estimate.
+pub fn route_violations(
+    estimate: &RouteEstimate,
+    workload: &WorkloadProfile,
+    policy: Option<&EffectivePolicy>,
+) -> Vec<ConstraintViolation> {
+    let mut v = constraint_violations(estimate, workload);
+    if let Some(p) = policy {
+        if !p.admits(&estimate.model_id) {
+            v.push(ConstraintViolation {
+                kind: micp_core::ConstraintKind::Capacity,
+                message: "denied by allow/deny policy".into(),
+                observed: 0.0,
+                limit: 0.0,
+            });
+        }
+    }
+    v
 }
 
 #[cfg(test)]

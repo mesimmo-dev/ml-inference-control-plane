@@ -3,6 +3,10 @@
 //! Tie-break is lexicographic on model id so equal scores are stable
 //! across processes (important for replay and tests).
 
+mod plan;
+
+pub use plan::{plan, EvaluatedRoute, RoutePlan};
+
 use micp_core::{
     partition_fleet, MicpError, ModelProfile, ObjectiveWeights, RequestConstraints, Result,
     RoutingDecision,

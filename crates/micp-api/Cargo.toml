@@ -13,6 +13,7 @@ micp-policy.workspace = true
 micp-slo.workspace = true
 micp-router.workspace = true
 micp-optimizer.workspace = true
+micp-sim.workspace = true
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true

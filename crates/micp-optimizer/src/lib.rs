@@ -1,13 +1,10 @@
-//! Traffic-share allocation under capacity.
-//!
-//! 1. Drop infeasible candidates.
-//! 2. Softmax over scores → desired shares.
-//! 3. Clip each share to `capacity_rps / demand_rps`.
-//! 4. Renormalize remaining mass onto unsaturated candidates.
-//!
-//! If aggregate capacity cannot absorb demand, shares still sum to 1
-//! and are proportional to capacity (the caller is expected to shed
-//! or queue; this crate does not invent a drop policy).
+//! Traffic-share allocation and Pareto recommendation.
+
+mod pareto;
+
+pub use pareto::{
+    dominates, pareto_front, recommend, recommend_among, recommend_from_estimates, ObjectivePoint,
+};
 
 use micp_core::{
     partition_fleet, MicpError, ModelId, ModelProfile, ObjectiveWeights, RequestConstraints, Result,
@@ -62,7 +59,6 @@ pub fn allocate(
             .iter()
             .map(|m| (m.capacity_rps / demand).clamp(0.0, 1.0))
             .collect();
-        // Water-filling: repeatedly clip and redistribute.
         for _ in 0..feasible.len() {
             let mut overflow = 0.0;
             let mut room = 0.0;
@@ -173,7 +169,6 @@ mod tests {
             100.0,
         )
         .unwrap();
-        // b can take at most 10/100 = 0.10 of demand.
         assert!(a.share_of("b") <= 0.10 + 1e-9);
         assert!(a.share_of("a") >= 0.90 - 1e-9);
     }
